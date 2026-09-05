@@ -11,6 +11,7 @@ transfer.log
 certs/
 .certs/
 bin/
+.chunks/
 
 # macOS
 .DS_Store

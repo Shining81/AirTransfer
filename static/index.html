@@ -642,6 +642,8 @@ checkSession();
 async function showMainPage() {
   pairPage.classList.add("hidden");
   mainPage.classList.remove("hidden");
+  // 检测网络类型（局域网直连 vs 公网隧道）
+  await detectNetwork();
   connectWebSocket();
   loadFiles();
   loadStats();
@@ -652,14 +654,70 @@ async function showMainPage() {
   });
 }
 
+/* ===== 网络检测：局域网 vs 公网 ===== */
+async function detectNetwork() {
+  // 获取服务器信息
+  try {
+    const resp = await fetch("/api/info");
+    state.serverInfo = await resp.json();
+  } catch (e) { return; }
+
+  const info = state.serverInfo;
+  const isTunnel = location.hostname.includes("trycloudflare.com") || location.hostname.includes("ngrok");
+
+  if (!isTunnel) {
+    // 直接通过局域网 IP 访问 → 高速模式
+    state.connectionMode = "lan";
+    state.uploadBase = location.origin;
+  } else {
+    // 通过隧道访问 → 尝试探测局域网直连
+    state.connectionMode = "tunnel";
+    state.uploadBase = location.origin;
+
+    // 尝试直连局域网 IP（用户可能同时在同一个 WiFi 下）
+    if (info.lan_urls && info.lan_urls.length) {
+      for (const url of info.lan_urls) {
+        try {
+          const test = await fetch(url + "/api/info", { signal: AbortSignal.timeout(2000) });
+          if (test.ok) {
+            state.connectionMode = "lan-direct";
+            state.uploadBase = url;
+            break;
+          }
+        } catch (e) { continue; }
+      }
+    }
+  }
+  updateConnectionIndicator();
+}
+
+function updateConnectionIndicator() {
+  const statusEl = $(".header-status");
+  if (!statusEl) return;
+  const dot = $(".status-dot", statusEl);
+  const label = $("span", statusEl);
+  if (state.connectionMode === "lan") {
+    dot.style.background = "#48bb78";
+    label.textContent = "局域网 · 极速";
+  } else if (state.connectionMode === "lan-direct") {
+    dot.style.background = "#48bb78";
+    label.textContent = "局域网直连 · 极速";
+  } else {
+    dot.style.background = "#ed8936";
+    label.textContent = "公网隧道";
+  }
+}
+
 /* ===== WebSocket ===== */
 let wsHeartbeat = null;
 let wsReconnectDelay = 1000;
 
 function connectWebSocket() {
   if (state.ws && state.ws.readyState < 2) return; // 已连接或正在连接
-  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-  const ws = new WebSocket(`${protocol}//${location.host}/ws`);
+  const base = state.uploadBase || location.origin;
+  const wsProtocol = base.startsWith("https") ? "wss:" : "ws:";
+  const wsHost = base.replace(/^https?:\/\//, "");
+  const ws = new WebSocket(`${wsProtocol}//${wsHost}/ws`);
   state.ws = ws;
   ws.onopen = () => {
     state.wsReady = true;
@@ -821,32 +879,18 @@ async function startUpload(item, retries) {
   item.startTime = item.startTime || Date.now();
   updateUploadItem(item);
 
-  const form = new FormData();
-  form.append("file", item.file);
-  form.append("upload_id", item.id);
-  if (item.path && item.path !== item.filename) {
-    form.append("relative_path", item.path);
-  }
+  // 根据网络模式选择上传策略
+  // 局域网：直传单文件（快）
+  // 公网隧道 + 大文件：分片并行上传（提速 3x）
+  const useChunked = state.connectionMode === "tunnel" && item.size > 1 * 1024 * 1024;
 
   try {
-    const controller = new AbortController();
-    // 大文件给更长超时：每 MB 给 60 秒，最少 5 分钟
-    const timeoutMs = Math.max(300000, (item.size / 1024 / 1024) * 60000);
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-    const resp = await fetch("/api/upload", {
-      method: "POST",
-      headers: tokenHeaders(),
-      body: form,
-      signal: controller.signal
-    });
-    clearTimeout(timeout);
-
-    if (!resp.ok) throw new Error(await resp.text());
-    const data = await resp.json();
+    if (useChunked) {
+      await chunkedUpload(item);
+    } else {
+      await directUpload(item);
+    }
     item.status = "completed";
-    item.savedAs = data.filename;
-    item.elapsed = data.elapsed;
     updateUploadItem(item);
     loadFiles();
     loadStats();
@@ -855,9 +899,8 @@ async function startUpload(item, retries) {
       new Notification("AirTransfer", { body: `${item.filename} 已接收`, icon: "/manifest.json" });
     }
   } catch (e) {
-    const isNetworkError = e.name === "AbortError" || e.message.includes("Failed to fetch") || e.message.includes("NetworkError");
-    if (isNetworkError) {
-      // 先检查文件是否实际已到达服务器
+    const isNet = e.name === "AbortError" || e.message.includes("Failed to fetch") || e.message.includes("NetworkError");
+    if (isNet) {
       const received = await checkFileReceived(item.filename);
       if (received) {
         item.status = "completed";
@@ -866,25 +909,104 @@ async function startUpload(item, retries) {
         updateUploadItem(item);
         loadFiles();
         loadStats();
-        showToast(`${item.filename} 上传成功（网络波动，已自动恢复）`, "success");
+        showToast(`${item.filename} 已自动恢复`, "success");
         updateQueueCount();
         return;
       }
-      // 自动重试（最多 3 次）
       if (retries < 3) {
         item.status = "pending";
         updateUploadItem(item);
         const delay = (retries + 1) * 2000;
-        showToast(`网络波动，${delay/1000}秒后重试 ${item.filename}`, "info");
+        showToast(`网络波动，${delay/1000}秒后重试`, "info");
         setTimeout(() => startUpload(item, retries + 1), delay);
         return;
       }
     }
     item.status = "error";
-    item.error = e.name === "AbortError" ? "上传超时，请点击重试" : e.message;
+    item.error = e.name === "AbortError" ? "上传超时，点击重试" : e.message;
     updateUploadItem(item);
   }
   updateQueueCount();
+}
+
+/* 直传模式（局域网 / 小文件） */
+async function directUpload(item) {
+  const form = new FormData();
+  form.append("file", item.file);
+  form.append("upload_id", item.id);
+  if (item.path && item.path !== item.filename) form.append("relative_path", item.path);
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Math.max(300000, (item.size / 1048576) * 60000));
+
+  const resp = await fetch((state.uploadBase || "") + "/api/upload", {
+    method: "POST", headers: tokenHeaders(), body: form, signal: controller.signal
+  });
+  clearTimeout(timeout);
+  if (!resp.ok) throw new Error(await resp.text());
+  const data = await resp.json();
+  item.savedAs = data.filename;
+  item.elapsed = data.elapsed;
+}
+
+/* 分片并行上传模式（公网隧道大文件） */
+async function chunkedUpload(item) {
+  const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB 每片
+  const MAX_PARALLEL = 3;              // 最多 3 路并发
+  const totalChunks = Math.ceil(item.size / CHUNK_SIZE);
+  const base = state.uploadBase || "";
+
+  // 逐片上传，带并发控制
+  let uploaded = 0;
+  const semaphore = { active: 0 };
+
+  const uploadChunk = (index) => new Promise((resolve, reject) => {
+    const waitSlot = () => {
+      if (semaphore.active >= MAX_PARALLEL) { setTimeout(waitSlot, 100); return; }
+      semaphore.active++;
+      const start = index * CHUNK_SIZE;
+      const end = Math.min(start + CHUNK_SIZE, item.size);
+      const blob = item.file.slice(start, end);
+      const form = new FormData();
+      form.append("file", blob, item.filename);
+      form.append("upload_id", item.id);
+      form.append("chunk_index", index);
+      form.append("total_chunks", totalChunks);
+      form.append("filename", item.filename);
+      if (item.path && item.path !== item.filename) form.append("relative_path", item.path);
+
+      fetch(base + "/api/upload-chunk", {
+        method: "POST", headers: tokenHeaders(), body: form
+      }).then(r => {
+        semaphore.active--;
+        if (!r.ok) { r.text().then(t => reject(new Error(t))); return; }
+        uploaded++;
+        item.progress = Math.round(uploaded / totalChunks * 100);
+        updateUploadItem(item);
+        resolve();
+      }).catch(e => { semaphore.active--; reject(e); });
+    };
+    waitSlot();
+  });
+
+  // 并发上传所有分片
+  const chunks = Array.from({ length: totalChunks }, (_, i) => i);
+  await Promise.all(chunks.map(i => uploadChunk(i)));
+
+  // 合并分片
+  const form = new FormData();
+  form.append("upload_id", item.id);
+  form.append("filename", item.filename);
+  form.append("total_chunks", totalChunks);
+  if (item.path && item.path !== item.filename) form.append("relative_path", item.path);
+
+  const resp = await fetch(base + "/api/upload-finalize", {
+    method: "POST", headers: tokenHeaders(), body: form
+  });
+  if (!resp.ok) throw new Error(await resp.text());
+  const data = await resp.json();
+  item.savedAs = data.filename;
+  item.elapsed = data.elapsed;
 }
 
 /* ===== 上传进度渲染 ===== */

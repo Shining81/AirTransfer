@@ -25,6 +25,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, F
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 import uvicorn
 
 # ============================================================
@@ -518,6 +519,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# GZip 压缩（API 和静态资源响应）
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 
 # ============================================================
@@ -729,6 +732,140 @@ async def upload_file(
 
 
 # ============================================================
+# 分片并行上传（大文件提速）
+# ============================================================
+
+# 分片暂存: {upload_id: {"chunks": {idx: path}, "filename": str, "total": int}}
+_pending_chunks: dict[str, dict] = {}
+
+
+@app.post("/api/upload-chunk")
+async def upload_chunk(
+    file: UploadFile = File(...),
+    upload_id: str = Form(...),
+    chunk_index: int = Form(...),
+    total_chunks: int = Form(...),
+    filename: str = Form(...),
+    relative_path: str = Form(default=""),
+    token: str = Header(None, alias="X-Session-Token"),
+):
+    """接收单个分片"""
+    if not token or not verify_token(token):
+        raise HTTPException(status_code=401, detail="未授权")
+
+    if upload_id not in _pending_chunks:
+        _pending_chunks[upload_id] = {
+            "chunks": {}, "filename": filename,
+            "total": total_chunks, "relative_path": relative_path,
+            "start_time": time.time()
+        }
+
+    # 存储分片到临时文件
+    chunk_dir = BASE_DIR / ".chunks" / upload_id
+    chunk_dir.mkdir(parents=True, exist_ok=True)
+    chunk_path = chunk_dir / f"chunk_{chunk_index}"
+
+    with open(chunk_path, "wb") as f:
+        while True:
+            data = await file.read(1024 * 1024)
+            if not data:
+                break
+            f.write(data)
+
+    _pending_chunks[upload_id]["chunks"][chunk_index] = chunk_path
+    received = len(_pending_chunks[upload_id]["chunks"])
+
+    # 推送进度
+    progress = round(received / total_chunks * 100, 1)
+    await broadcast_progress(upload_id, {
+        "filename": filename, "status": "uploading",
+        "progress": progress, "chunks_received": received, "total_chunks": total_chunks
+    })
+
+    return {"success": True, "chunk": chunk_index, "received": received, "total": total_chunks}
+
+
+@app.post("/api/upload-finalize")
+async def upload_finalize(
+    request: Request,
+    upload_id: str = Form(...),
+    filename: str = Form(...),
+    total_chunks: int = Form(...),
+    relative_path: str = Form(default=""),
+    token: str = Header(None, alias="X-Session-Token"),
+):
+    """合并所有分片为最终文件"""
+    if not token or not verify_token(token):
+        raise HTTPException(status_code=401, detail="未授权")
+
+    info = _pending_chunks.get(upload_id)
+    if not info:
+        raise HTTPException(status_code=400, detail="未找到上传会话")
+
+    if len(info["chunks"]) != total_chunks:
+        raise HTTPException(status_code=400, detail=f"分片不完整: {len(info['chunks'])}/{total_chunks}")
+
+    # 确定保存路径
+    if relative_path:
+        safe_rel = Path(relative_path)
+        if ".." in safe_rel.parts:
+            raise HTTPException(status_code=400, detail="非法路径")
+        target_dir = SAVE_DIR
+        if config.get("auto_subfolder"):
+            target_dir = SAVE_DIR / datetime.now().strftime("%Y-%m-%d")
+        filepath = target_dir / safe_rel
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        filepath = resolve_conflict(filepath)
+    else:
+        filepath = get_save_path(filename)
+
+    if filepath is None:
+        _cleanup_chunks(upload_id)
+        return {"success": True, "filename": filename, "status": "skipped"}
+
+    # 按顺序合并分片
+    start_time = info.get("start_time", time.time())
+    with open(filepath, "wb") as out:
+        for i in range(total_chunks):
+            chunk_path = info["chunks"].get(i)
+            if not chunk_path or not chunk_path.exists():
+                _cleanup_chunks(upload_id)
+                raise HTTPException(status_code=400, detail=f"分片 {i} 缺失")
+            with open(chunk_path, "rb") as chunk:
+                while True:
+                    data = chunk.read(1024 * 1024)
+                    if not data:
+                        break
+                    out.write(data)
+
+    elapsed = time.time() - start_time
+    file_size = filepath.stat().st_size
+    logger.info(f"分片接收成功: {filepath.name} ({format_size(file_size)}, {total_chunks}片, {elapsed:.1f}s)")
+
+    _cleanup_chunks(upload_id)
+
+    await broadcast_progress(upload_id, {
+        "filename": filename, "saved_as": filepath.name,
+        "status": "completed", "progress": 100,
+        "size": file_size, "elapsed": round(elapsed, 1)
+    })
+    await broadcast_file_event("file_added", {
+        "filename": filepath.name, "size": file_size, "time": datetime.now().isoformat()
+    })
+
+    return {"success": True, "filename": filepath.name, "size": file_size, "elapsed": round(elapsed, 1)}
+
+
+def _cleanup_chunks(upload_id: str):
+    """清理分片临时文件"""
+    _pending_chunks.pop(upload_id, None)
+    chunk_dir = BASE_DIR / ".chunks" / upload_id
+    if chunk_dir.exists():
+        import shutil
+        shutil.rmtree(chunk_dir, ignore_errors=True)
+
+
+# ============================================================
 # WebSocket 连接
 # ============================================================
 
@@ -860,6 +997,8 @@ async def get_thumbnail(file_path: str, token: str = Header(None, alias="X-Sessi
 async def server_info():
     """获取服务器信息（不需要认证）"""
     local_ips = get_local_ips()
+    protocol = "https" if config["enable_ssl"] else "http"
+    lan_urls = [f"{protocol}://{ip}:{config['port']}" for ip in local_ips]
     return {
         "name": "AirTransfer",
         "version": "1.0.0",
@@ -868,7 +1007,9 @@ async def server_info():
         "ssl": config["enable_ssl"],
         "save_dir": str(SAVE_DIR),
         "no_auth": config.get("no_auth", False),
-        "tunnel_url": TUNNEL_URL
+        "tunnel_url": TUNNEL_URL,
+        "lan_urls": lan_urls,
+        "base_url": f"{protocol}://localhost:{config['port']}"
     }
 
 
