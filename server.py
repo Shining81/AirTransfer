@@ -90,6 +90,11 @@ if args.no_auth:
     config["no_auth"] = True
 if args.no_ssl:
     config["enable_ssl"] = False
+if args.tunnel:
+    config["tunnel"] = args.tunnel
+
+# 全局隧道 URL
+TUNNEL_URL: Optional[str] = None
 
 # 展开保存目录路径
 SAVE_DIR = Path(os.path.expanduser(config["save_dir"])).resolve()
@@ -233,6 +238,72 @@ def get_local_ips() -> list[str]:
 
 
 # ============================================================
+# 内网穿透（ngrok）
+# ============================================================
+
+def start_tunnel(port: int) -> Optional[str]:
+    """启动 ngrok 隧道，返回公网 URL"""
+    tunnel_type = config.get("tunnel", "")
+    if not tunnel_type:
+        return None
+
+    if tunnel_type == "ngrok" or tunnel_type == "auto":
+        return start_ngrok(port)
+    elif tunnel_type.startswith("ngrok"):
+        return start_ngrok(port)
+    else:
+        logger.warning(f"不支持的隧道类型: {tunnel_type}，目前支持: ngrok")
+        return None
+
+
+def start_ngrok(port: int) -> Optional[str]:
+    """启动 ngrok 隧道"""
+    try:
+        from pyngrok import ngrok
+        from pyngrok.conf import PyngrokConfig
+
+        # 检查 ngrok 是否已安装
+        try:
+            ngrok.get_ngrok_process()
+        except Exception:
+            # ngrok 进程未启动，会自动启动
+            pass
+
+        logger.info("正在启动 ngrok 隧道...")
+        print("  ⏳ 正在连接 ngrok...")
+
+        # 创建 HTTP 隧道
+        tunnel = ngrok.connect(port, "http")
+        public_url = tunnel.public_url
+
+        logger.info(f"ngrok 隧道已建立: {public_url}")
+        return public_url
+
+    except ImportError:
+        logger.error("未安装 pyngrok，请运行: pip install pyngrok")
+        print("  ❌ 请先安装 pyngrok: pip install pyngrok")
+        return None
+    except Exception as e:
+        logger.error(f"ngrok 隧道启动失败: {e}")
+        print(f"  ❌ ngrok 隧道启动失败: {e}")
+        print("     请确保已配置 ngrok authtoken: ngrok config add-authtoken <YOUR_TOKEN>")
+        return None
+
+
+def stop_tunnel():
+    """关闭隧道"""
+    global TUNNEL_URL
+    if TUNNEL_URL and "ngrok" in TUNNEL_URL:
+        try:
+            from pyngrok import ngrok
+            ngrok.kill()
+            logger.info("ngrok 隧道已关闭")
+        except Exception:
+            pass
+    TUNNEL_URL = None
+
+
+# ============================================================
 # FastAPI 应用
 # ============================================================
 
@@ -241,9 +312,17 @@ import ipaddress
 @asynccontextmanager
 async def lifespan(app):
     """应用生命周期"""
+    global TUNNEL_URL
+    # 启动内网穿透
+    if config.get("tunnel"):
+        TUNNEL_URL = start_tunnel(config["port"])
     print_startup_info()
     logger.info(f"AirTransfer 启动 - 端口:{config['port']} 目录:{SAVE_DIR}")
+    if TUNNEL_URL:
+        logger.info(f"公网隧道: {TUNNEL_URL}")
     yield
+    # 关闭隧道
+    stop_tunnel()
 
 app = FastAPI(title="AirTransfer", docs_url=None, redoc_url=None, lifespan=lifespan)
 
@@ -604,7 +683,8 @@ async def server_info():
         "port": config["port"],
         "ssl": config["enable_ssl"],
         "save_dir": str(SAVE_DIR),
-        "no_auth": config.get("no_auth", False)
+        "no_auth": config.get("no_auth", False),
+        "tunnel_url": TUNNEL_URL
     }
 
 
@@ -823,16 +903,26 @@ def print_startup_info():
     print(f"  🔒 SSL:      {'启用' if config['enable_ssl'] else '禁用'}")
     print()
 
+    # 公网隧道地址（优先显示）
+    if TUNNEL_URL:
+        print(f"  🌍 公网访问: {TUNNEL_URL}")
+        print(f"     (手机用流量也能访问)")
+        print()
+        # 为隧道 URL 生成二维码
+        print_qr_code(TUNNEL_URL)
+        print()
+
     for ip in local_ips:
         url = f"{protocol}://{ip}:{port}"
         print(f"  📱 局域网访问: {url}")
 
     print(f"\n  🌐 本机访问: {protocol}://localhost:{port}")
-    print()
 
-    # 显示二维码
-    primary_url = f"{protocol}://{local_ips[0]}:{port}"
-    print_qr_code(primary_url)
+    # 如果没有隧道，用局域网 IP 生成二维码
+    if not TUNNEL_URL:
+        print()
+        primary_url = f"{protocol}://{local_ips[0]}:{port}"
+        print_qr_code(primary_url)
 
     print("\n" + "=" * 50)
     print(f"  配对码: {PAIR_CODE}  |  Ctrl+C 停止服务")

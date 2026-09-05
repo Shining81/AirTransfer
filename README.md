@@ -6,6 +6,7 @@
 - 实时 WebSocket 进度推送
 - 6 位配对码安全认证
 - 自动检测局域网 IP，终端显示二维码
+- **公网穿透**：集成 ngrok，手机用流量也能传文件
 - 文件管理：列表/网格视图、预览、删除
 - 毛玻璃暗色主题 UI
 - 移动端优先，支持 PWA
@@ -23,7 +24,14 @@
 ## 启动参数
 
 ```bash
-./start.sh --port 9000 --dir ~/Desktop/Transfer --no-auth
+# 局域网模式
+./start.sh
+
+# 公网穿透模式（手机用流量也能访问）
+./start.sh --tunnel ngrok
+
+# 自定义参数
+./start.sh --port 9000 --dir ~/Desktop/Transfer --no-auth --tunnel ngrok
 ```
 
 | 参数 | 说明 |
@@ -32,6 +40,14 @@
 | `--dir PATH` | 指定保存目录（默认 ~/Downloads/AirTransfer） |
 | `--no-auth` | 跳过配对码验证 |
 | `--no-ssl` | 禁用 SSL |
+| `--tunnel ngrok` | 启用 ngrok 公网穿透 |
+
+### 公网穿透说明
+
+使用 `--tunnel ngrok` 需要：
+1. 安装 ngrok：`brew install ngrok`
+2. 注册并配置 authtoken：`ngrok config add-authtoken YOUR_TOKEN`
+3. 启动后终端会显示公网地址和二维码，手机用 4G/5G 流量也能访问
 
 ## 配置文件
 
@@ -69,4 +85,5 @@ uvicorn[standard]
 python-multipart
 websockets
 qrcode
+pyngrok          # 可选，用于公网穿透
 ```
