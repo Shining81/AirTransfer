@@ -1,37 +1,46 @@
 # AirTransfer - Mac 本地文件传输服务器
 
-## 功能特性
+局域网 / 公网手机传文件到 Mac，打开即用。
 
-- 多文件/文件夹上传，保留目录结构
-- 实时 WebSocket 进度推送
-- 6 位配对码安全认证
-- 自动检测局域网 IP，终端显示二维码
-- **公网穿透**：内置 Cloudflare Tunnel，手机用流量也能传文件（无需注册、免费）
-- 文件管理：列表/网格视图、预览、删除
-- 毛玻璃暗色主题 UI
-- 移动端优先，支持 PWA
-- 流式写入，无文件大小限制
-- 自动文件名冲突处理
-
-## 快速启动
+## 一键启动
 
 ```bash
 ./start.sh
 ```
 
-首次运行会自动创建虚拟环境并安装依赖。
+首次运行自动创建虚拟环境、安装依赖、启动公网隧道。
+
+手机扫码或输入终端显示的地址即可传文件。
+
+## 功能
+
+- 多文件/文件夹上传，保留目录结构
+- 手机相机直接拍照上传
+- 实时上传进度（百分比、速度、剩余时间）
+- 6 位配对码安全认证
+- **自动检测网络**：局域网直连极速 / 公网隧道自动穿透
+- **公网穿透**：内置 Cloudflare Tunnel，无需注册、免费
+- **大文件加速**：公网自动分片 3 路并行上传
+- 文件管理：网格/列表视图、图片视频预览、删除
+- 毛玻璃暗色主题 UI
+- 移动端优先 + PWA 支持
+- 流式写入，无文件大小限制
+- 自动文件名冲突处理
 
 ## 启动参数
 
 ```bash
-# 局域网模式（同一 WiFi 下传文件）
+# 默认：公网穿透开启
 ./start.sh
 
-# 公网穿透模式（手机用 4G/5G 流量也能访问）
-./start.sh --tunnel cloudflare
+# 仅局域网（不需要公网穿透）
+./start.sh --no-tunnel
 
-# 自定义参数
-./start.sh --port 9000 --dir ~/Desktop/Transfer --no-auth --tunnel cloudflare
+# 自定义端口和目录
+./start.sh --port 9000 --dir ~/Desktop/Transfer
+
+# 跳过配对码
+./start.sh --no-auth
 ```
 
 | 参数 | 说明 |
@@ -40,38 +49,19 @@
 | `--dir PATH` | 指定保存目录（默认 ~/Downloads/AirTransfer） |
 | `--no-auth` | 跳过配对码验证 |
 | `--no-ssl` | 禁用 SSL |
-| `--tunnel cloudflare` | 启用 Cloudflare 公网穿透 |
+| `--no-tunnel` | 禁用公网穿透，仅局域网可用 |
+| `--tunnel cloudflare` | 启用 Cloudflare 穿透（默认开启） |
 
-### 公网穿透说明
+## 网络模式
 
-使用 `--tunnel cloudflare` **无需任何配置**：
-- 自动下载 cloudflared 二进制（首次约 30MB）
-- 通过 Cloudflare 的全球网络建立安全隧道
-- 免费、无需注册账号
-- 启动后终端会显示公网地址（如 `https://xxx.trycloudflare.com`）
-- 手机用 4G/5G 流量扫码即可访问
+| 模式 | 速度 | 说明 |
+|------|------|------|
+| 局域网 WiFi | 极速（取决于路由器） | 同一 WiFi 下直连 Mac IP |
+| 公网隧道 | 一般（Cloudflare 免费带宽） | 手机 4G/5G 或异地访问 |
 
-## 配置文件
-
-编辑 `config.json` 自定义行为：
-
-```json
-{
-  "port": 8899,
-  "save_dir": "~/Downloads/AirTransfer",
-  "auto_subfolder": false,
-  "conflict_strategy": "rename",
-  "enable_notification": true
-}
-```
-
-## 使用方式
-
-1. 启动服务器，终端显示配对码和访问地址
-2. 手机浏览器扫描二维码或输入地址
-3. 输入 6 位配对码完成连接
-4. 拖拽或点击选择文件上传
-5. 在"已接收"标签页管理文件
+页面会自动检测网络类型并显示状态：
+- 绿色「局域网 · 极速」= 直连模式
+- 橙色「公网隧道」= Cloudflare 穿透模式
 
 ## 技术栈
 
@@ -79,6 +69,8 @@
 - **前端**: 纯 HTML/CSS/JS（单文件，零依赖）
 - **通信**: WebSocket 实时进度 + HTTP multipart 上传
 - **穿透**: Cloudflare Tunnel（cloudflared，自动下载）
+- **压缩**: GZip 响应压缩
+- **加速**: 大文件分片 3 路并行上传
 
 ## 依赖
 
@@ -89,3 +81,5 @@ python-multipart
 websockets
 qrcode
 ```
+
+无需额外安装 cloudflared，首次运行自动下载。

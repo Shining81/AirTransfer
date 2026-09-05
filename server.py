@@ -79,7 +79,8 @@ parser.add_argument("--port", type=int, default=None, help="服务端口")
 parser.add_argument("--dir", type=str, default=None, help="文件保存目录")
 parser.add_argument("--no-auth", action="store_true", help="跳过配对验证")
 parser.add_argument("--no-ssl", action="store_true", help="禁用 SSL")
-parser.add_argument("--tunnel", type=str, default=None, help="内网穿透 (cloudflare)，无需配置")
+parser.add_argument("--tunnel", type=str, default="cloudflare", help="内网穿透类型 (默认: cloudflare)")
+parser.add_argument("--no-tunnel", action="store_true", help="禁用公网穿透，仅局域网")
 args, _ = parser.parse_known_args()
 
 if args.port:
@@ -91,7 +92,9 @@ if args.no_auth:
     config["no_auth"] = True
 if args.no_ssl:
     config["enable_ssl"] = False
-if args.tunnel:
+if args.no_tunnel:
+    config["tunnel"] = ""
+elif args.tunnel:
     config["tunnel"] = args.tunnel
 
 # 全局隧道 URL

@@ -36,6 +36,7 @@ while [[ $# -gt 0 ]]; do
         --dir) SAVE_DIR="$2"; shift 2 ;;
         --no-auth) NO_AUTH="--no-auth"; shift ;;
         --no-ssl) NO_SSL="--no-ssl"; shift ;;
+        --no-tunnel) EXTRA_ARGS="$EXTRA_ARGS --no-tunnel"; shift ;;
         --tunnel) EXTRA_ARGS="$EXTRA_ARGS --tunnel $2"; shift 2 ;;
         *) EXTRA_ARGS="$EXTRA_ARGS $1"; shift ;;
     esac
