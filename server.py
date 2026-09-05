@@ -78,7 +78,7 @@ parser.add_argument("--port", type=int, default=None, help="服务端口")
 parser.add_argument("--dir", type=str, default=None, help="文件保存目录")
 parser.add_argument("--no-auth", action="store_true", help="跳过配对验证")
 parser.add_argument("--no-ssl", action="store_true", help="禁用 SSL")
-parser.add_argument("--tunnel", type=str, default=None, help="内网穿透配置")
+parser.add_argument("--tunnel", type=str, default=None, help="内网穿透 (cloudflare)，无需配置")
 args, _ = parser.parse_known_args()
 
 if args.port:
@@ -238,68 +238,204 @@ def get_local_ips() -> list[str]:
 
 
 # ============================================================
-# 内网穿透（ngrok）
+# 内网穿透（Cloudflare Tunnel）
 # ============================================================
 
-def start_tunnel(port: int) -> Optional[str]:
-    """启动 ngrok 隧道，返回公网 URL"""
-    tunnel_type = config.get("tunnel", "")
-    if not tunnel_type:
-        return None
+import subprocess
+import platform
+import tarfile
+import zipfile
+import shutil
 
-    if tunnel_type == "ngrok" or tunnel_type == "auto":
-        return start_ngrok(port)
-    elif tunnel_type.startswith("ngrok"):
-        return start_ngrok(port)
+# cloudflared 子进程和 URL
+_tunnel_process: Optional[subprocess.Popen] = None
+
+
+def _get_cloudflared_path() -> Path:
+    """获取 cloudflared 二进制文件路径"""
+    return BASE_DIR / "bin" / "cloudflared"
+
+
+def _download_cloudflared() -> Optional[Path]:
+    """自动下载 cloudflared 二进制文件（支持国内镜像加速）"""
+    import urllib.request
+
+    bin_path = _get_cloudflared_path()
+    if bin_path.exists():
+        return bin_path
+
+    bin_path.parent.mkdir(parents=True, exist_ok=True)
+
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+
+    # 确定文件名
+    if system == "darwin":
+        filename = "cloudflared-darwin-amd64.tgz"
+    elif system == "linux":
+        if machine in ("aarch64", "arm64"):
+            filename = "cloudflared-linux-arm64"
+        else:
+            filename = "cloudflared-linux-amd64"
     else:
-        logger.warning(f"不支持的隧道类型: {tunnel_type}，目前支持: ngrok")
+        logger.error(f"不支持的操作系统: {system}")
         return None
 
+    github_path = f"cloudflare/cloudflared/releases/latest/download/{filename}"
 
-def start_ngrok(port: int) -> Optional[str]:
-    """启动 ngrok 隧道"""
-    try:
-        from pyngrok import ngrok
-        from pyngrok.conf import PyngrokConfig
+    # 下载源列表：直连 + 国内镜像，依次尝试
+    mirrors = [
+        f"https://github.com/{github_path}",
+        f"https://ghfast.top/https://github.com/{github_path}",
+        f"https://gh-proxy.com/https://github.com/{github_path}",
+        f"https://mirror.ghproxy.com/https://github.com/{github_path}",
+    ]
 
-        # 检查 ngrok 是否已安装
+    print(f"  ⏳ 正在下载 cloudflared...")
+    logger.info(f"下载 cloudflared: {filename}")
+
+    tmp_path = bin_path.parent / "cloudflared_tmp"
+
+    for url in mirrors:
         try:
-            ngrok.get_ngrok_process()
-        except Exception:
-            # ngrok 进程未启动，会自动启动
-            pass
-
-        logger.info("正在启动 ngrok 隧道...")
-        print("  ⏳ 正在连接 ngrok...")
-
-        # 创建 HTTP 隧道
-        tunnel = ngrok.connect(port, "http")
-        public_url = tunnel.public_url
-
-        logger.info(f"ngrok 隧道已建立: {public_url}")
-        return public_url
-
-    except ImportError:
-        logger.error("未安装 pyngrok，请运行: pip install pyngrok")
-        print("  ❌ 请先安装 pyngrok: pip install pyngrok")
+            logger.info(f"尝试: {url[:60]}...")
+            urllib.request.urlretrieve(url, str(tmp_path))
+            # 验证下载是否成功（至少 1MB）
+            if tmp_path.stat().st_size < 1024 * 1024:
+                tmp_path.unlink(missing_ok=True)
+                continue
+            break
+        except Exception as e:
+            logger.warning(f"下载失败: {e}")
+            tmp_path.unlink(missing_ok=True)
+            continue
+    else:
+        print(f"  ❌ 所有下载源均失败")
+        print(f"     请手动下载: https://github.com/cloudflare/cloudflared/releases")
+        print(f"     放到: {bin_path}")
         return None
+
+    try:
+        # 解压 tgz（macOS）
+        if filename.endswith(".tgz"):
+            with tarfile.open(str(tmp_path), "r:gz") as tar:
+                for member in tar.getmembers():
+                    if member.name == "cloudflared" or member.name.endswith("/cloudflared"):
+                        member.name = "cloudflared"
+                        tar.extract(member, str(bin_path.parent))
+                        break
+            tmp_path.unlink(missing_ok=True)
+        else:
+            # 直接是二进制文件（Linux）
+            tmp_path.rename(bin_path)
+
+        bin_path.chmod(0o755)
+        print(f"  ✓ cloudflared 已下载")
+        logger.info("cloudflared 下载完成")
+        return bin_path
+
     except Exception as e:
-        logger.error(f"ngrok 隧道启动失败: {e}")
-        print(f"  ❌ ngrok 隧道启动失败: {e}")
-        print("     请确保已配置 ngrok authtoken: ngrok config add-authtoken <YOUR_TOKEN>")
+        logger.error(f"cloudflared 解压失败: {e}")
+        print(f"  ❌ 解压失败: {e}")
+        tmp_path.unlink(missing_ok=True)
+        return None
+
+
+def _find_cloudflared() -> Optional[Path]:
+    """查找 cloudflared 二进制（优先本地，其次系统 PATH）"""
+    # 1. 项目本地 bin 目录
+    local = _get_cloudflared_path()
+    if local.exists():
+        return local
+
+    # 2. 系统 PATH
+    system_path = shutil.which("cloudflared")
+    if system_path:
+        return Path(system_path)
+
+    return None
+
+
+def start_tunnel(port: int) -> Optional[str]:
+    """启动 Cloudflare Quick Tunnel，返回公网 URL"""
+    global _tunnel_process
+
+    if not config.get("tunnel"):
+        return None
+
+    # 查找或下载 cloudflared
+    cf_path = _find_cloudflared()
+    if not cf_path:
+        cf_path = _download_cloudflared()
+    if not cf_path:
+        return None
+
+    print("  ⏳ 正在建立公网隧道...")
+    logger.info("启动 Cloudflare Quick Tunnel...")
+
+    try:
+        # 启动 cloudflared quick tunnel
+        _tunnel_process = subprocess.Popen(
+            [str(cf_path), "tunnel", "--url", f"http://localhost:{port}"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        # 从 stderr 读取公网 URL（cloudflared 输出到 stderr）
+        import re as _re
+        import time as _time
+        public_url = None
+        start = _time.time()
+
+        while _time.time() - start < 30:  # 最多等 30 秒
+            line = _tunnel_process.stderr.readline()
+            if not line:
+                if _tunnel_process.poll() is not None:
+                    break
+                _time.sleep(0.2)
+                continue
+
+            # 用正则提取 https://xxx.trycloudflare.com URL
+            match = _re.search(r'https?://[\w.-]+\.trycloudflare\.com', line)
+            if match:
+                public_url = match.group(0)
+                break
+
+        if public_url:
+            logger.info(f"Cloudflare 隧道已建立: {public_url}")
+            return public_url
+        else:
+            # 检查进程是否还活着
+            if _tunnel_process.poll() is not None:
+                stderr = _tunnel_process.stderr.read()
+                logger.error(f"cloudflared 启动失败: {stderr}")
+                print(f"  ❌ 隧道启动失败")
+            else:
+                logger.warning("cloudflared 启动超时，未获取到公网 URL")
+                print("  ❌ 隧道启动超时")
+            return None
+
+    except Exception as e:
+        logger.error(f"隧道启动异常: {e}")
+        print(f"  ❌ 隧道启动失败: {e}")
         return None
 
 
 def stop_tunnel():
     """关闭隧道"""
-    global TUNNEL_URL
-    if TUNNEL_URL and "ngrok" in TUNNEL_URL:
+    global _tunnel_process, TUNNEL_URL
+    if _tunnel_process:
         try:
-            from pyngrok import ngrok
-            ngrok.kill()
-            logger.info("ngrok 隧道已关闭")
+            _tunnel_process.terminate()
+            _tunnel_process.wait(timeout=5)
+            logger.info("Cloudflare 隧道已关闭")
         except Exception:
-            pass
+            try:
+                _tunnel_process.kill()
+            except Exception:
+                pass
+        _tunnel_process = None
     TUNNEL_URL = None
 
 

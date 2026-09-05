@@ -6,7 +6,7 @@
 - 实时 WebSocket 进度推送
 - 6 位配对码安全认证
 - 自动检测局域网 IP，终端显示二维码
-- **公网穿透**：集成 ngrok，手机用流量也能传文件
+- **公网穿透**：内置 Cloudflare Tunnel，手机用流量也能传文件（无需注册、免费）
 - 文件管理：列表/网格视图、预览、删除
 - 毛玻璃暗色主题 UI
 - 移动端优先，支持 PWA
@@ -24,14 +24,14 @@
 ## 启动参数
 
 ```bash
-# 局域网模式
+# 局域网模式（同一 WiFi 下传文件）
 ./start.sh
 
-# 公网穿透模式（手机用流量也能访问）
-./start.sh --tunnel ngrok
+# 公网穿透模式（手机用 4G/5G 流量也能访问）
+./start.sh --tunnel cloudflare
 
 # 自定义参数
-./start.sh --port 9000 --dir ~/Desktop/Transfer --no-auth --tunnel ngrok
+./start.sh --port 9000 --dir ~/Desktop/Transfer --no-auth --tunnel cloudflare
 ```
 
 | 参数 | 说明 |
@@ -40,14 +40,16 @@
 | `--dir PATH` | 指定保存目录（默认 ~/Downloads/AirTransfer） |
 | `--no-auth` | 跳过配对码验证 |
 | `--no-ssl` | 禁用 SSL |
-| `--tunnel ngrok` | 启用 ngrok 公网穿透 |
+| `--tunnel cloudflare` | 启用 Cloudflare 公网穿透 |
 
 ### 公网穿透说明
 
-使用 `--tunnel ngrok` 需要：
-1. 安装 ngrok：`brew install ngrok`
-2. 注册并配置 authtoken：`ngrok config add-authtoken YOUR_TOKEN`
-3. 启动后终端会显示公网地址和二维码，手机用 4G/5G 流量也能访问
+使用 `--tunnel cloudflare` **无需任何配置**：
+- 自动下载 cloudflared 二进制（首次约 30MB）
+- 通过 Cloudflare 的全球网络建立安全隧道
+- 免费、无需注册账号
+- 启动后终端会显示公网地址（如 `https://xxx.trycloudflare.com`）
+- 手机用 4G/5G 流量扫码即可访问
 
 ## 配置文件
 
@@ -76,6 +78,7 @@
 - **后端**: Python 3 + FastAPI + Uvicorn
 - **前端**: 纯 HTML/CSS/JS（单文件，零依赖）
 - **通信**: WebSocket 实时进度 + HTTP multipart 上传
+- **穿透**: Cloudflare Tunnel（cloudflared，自动下载）
 
 ## 依赖
 
@@ -85,5 +88,4 @@ uvicorn[standard]
 python-multipart
 websockets
 qrcode
-pyngrok          # 可选，用于公网穿透
 ```
