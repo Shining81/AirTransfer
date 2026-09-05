@@ -478,10 +478,10 @@ async def lifespan(app):
 
 
 async def _tunnel_health_loop():
-    """后台轮询：每 15 秒检测隧道进程，挂了自动重启"""
+    """后台轮询：每 30 秒检测隧道进程，挂了自动重启"""
     global TUNNEL_URL
     while True:
-        await asyncio.sleep(15)
+        await asyncio.sleep(30)
         try:
             dead = False
             if _tunnel_process is None:

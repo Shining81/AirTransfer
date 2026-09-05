@@ -653,14 +653,19 @@ async function showMainPage() {
 }
 
 /* ===== WebSocket ===== */
+let wsHeartbeat = null;
+let wsReconnectDelay = 1000;
+
 function connectWebSocket() {
+  if (state.ws && state.ws.readyState < 2) return; // 已连接或正在连接
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   const ws = new WebSocket(`${protocol}//${location.host}/ws`);
   state.ws = ws;
   ws.onopen = () => {
     state.wsReady = true;
-    // 心跳
-    setInterval(() => { if (ws.readyState === 1) ws.send("ping"); }, 30000);
+    wsReconnectDelay = 1000;
+    clearInterval(wsHeartbeat);
+    wsHeartbeat = setInterval(() => { if (ws.readyState === 1) ws.send("ping"); }, 25000);
   };
   ws.onmessage = (e) => {
     try {
@@ -670,7 +675,10 @@ function connectWebSocket() {
   };
   ws.onclose = () => {
     state.wsReady = false;
-    setTimeout(connectWebSocket, 3000);
+    clearInterval(wsHeartbeat);
+    // 指数退避重连，最长 10 秒
+    setTimeout(connectWebSocket, wsReconnectDelay);
+    wsReconnectDelay = Math.min(wsReconnectDelay * 1.5, 10000);
   };
   ws.onerror = () => ws.close();
 }
@@ -807,9 +815,10 @@ async function uploadFiles(fileList) {
   updateQueueCount();
 }
 
-async function startUpload(item) {
+async function startUpload(item, retries) {
+  retries = retries || 0;
   item.status = "uploading";
-  item.startTime = Date.now();
+  item.startTime = item.startTime || Date.now();
   updateUploadItem(item);
 
   const form = new FormData();
@@ -820,11 +829,19 @@ async function startUpload(item) {
   }
 
   try {
+    const controller = new AbortController();
+    // 大文件给更长超时：每 MB 给 60 秒，最少 5 分钟
+    const timeoutMs = Math.max(300000, (item.size / 1024 / 1024) * 60000);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
     const resp = await fetch("/api/upload", {
       method: "POST",
       headers: tokenHeaders(),
-      body: form
+      body: form,
+      signal: controller.signal
     });
+    clearTimeout(timeout);
+
     if (!resp.ok) throw new Error(await resp.text());
     const data = await resp.json();
     item.status = "completed";
@@ -834,13 +851,37 @@ async function startUpload(item) {
     loadFiles();
     loadStats();
     showToast(`${item.filename} 上传成功`, "success");
-    // 通知
     if ("Notification" in window && Notification.permission === "granted") {
       new Notification("AirTransfer", { body: `${item.filename} 已接收`, icon: "/manifest.json" });
     }
   } catch (e) {
+    const isNetworkError = e.name === "AbortError" || e.message.includes("Failed to fetch") || e.message.includes("NetworkError");
+    if (isNetworkError) {
+      // 先检查文件是否实际已到达服务器
+      const received = await checkFileReceived(item.filename);
+      if (received) {
+        item.status = "completed";
+        item.savedAs = received.name;
+        item.elapsed = ((Date.now() - item.startTime) / 1000).toFixed(1);
+        updateUploadItem(item);
+        loadFiles();
+        loadStats();
+        showToast(`${item.filename} 上传成功（网络波动，已自动恢复）`, "success");
+        updateQueueCount();
+        return;
+      }
+      // 自动重试（最多 3 次）
+      if (retries < 3) {
+        item.status = "pending";
+        updateUploadItem(item);
+        const delay = (retries + 1) * 2000;
+        showToast(`网络波动，${delay/1000}秒后重试 ${item.filename}`, "info");
+        setTimeout(() => startUpload(item, retries + 1), delay);
+        return;
+      }
+    }
     item.status = "error";
-    item.error = e.message;
+    item.error = e.name === "AbortError" ? "上传超时，请点击重试" : e.message;
     updateUploadItem(item);
   }
   updateQueueCount();
@@ -926,6 +967,22 @@ function updateQueueCount() {
   state.uploads.forEach(u => { if (u.status === "uploading" || u.status === "pending") active++; });
   queueCount.textContent = active;
   if (state.uploads.size === 0) queueEl.classList.add("hidden");
+}
+
+async function checkFileReceived(filename) {
+  try {
+    const resp = await fetch("/api/files", { headers: tokenHeaders() });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const base = filename.replace(/\.[^.]+$/, "");
+    const ext = filename.match(/\.[^.]+$/)?.[0] || "";
+    for (const f of (data.files || [])) {
+      if (f.name === filename || (f.name.startsWith(base) && f.name.endsWith(ext))) {
+        return f;
+      }
+    }
+  } catch (e) { /* ignore */ }
+  return null;
 }
 
 /* ===== 文件列表 ===== */
