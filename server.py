@@ -396,8 +396,9 @@ def start_tunnel(port: int) -> Optional[str]:
                 _time.sleep(0.2)
                 continue
 
-            # 用正则提取 https://xxx.trycloudflare.com URL
-            match = _re.search(r'https?://[\w.-]+\.trycloudflare\.com', line)
+            # 用正则提取 https://xxx-xxx-xxx.trycloudflare.com URL
+            # 排除 api.trycloudflare.com 等非隧道地址
+            match = _re.search(r'https?://[\w]+-[\w.-]+\.trycloudflare\.com', line)
             if match:
                 public_url = match.group(0)
                 break
