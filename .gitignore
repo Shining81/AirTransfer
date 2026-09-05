@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# 运行时文件
+transfer.log
+certs/
+.certs/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# 上传的文件（如果在项目目录下）
+*.pem

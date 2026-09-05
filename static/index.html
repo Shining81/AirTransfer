@@ -1,0 +1,1171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0a0e1a">
+<link rel="manifest" href="/manifest.json">
+<title>AirTransfer</title>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg-start:#0a0e1a;--bg-end:#1a1e2e;
+  --glass:rgba(255,255,255,.05);--glass-border:rgba(255,255,255,.1);
+  --accent-start:#667eea;--accent-end:#764ba2;
+  --success:#48bb78;--error:#f56565;--warn:#ed8936;
+  --text:#e2e8f0;--text-dim:#94a3b8;--text-muted:#64748b;
+  --radius:16px;--radius-sm:12px;--radius-xs:8px;
+  --transition:cubic-bezier(.4,0,.2,1);
+}
+html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+body{
+  background:linear-gradient(135deg,var(--bg-start),var(--bg-end));
+  color:var(--text);-webkit-font-smoothing:antialiased;
+}
+input,button,textarea{font-family:inherit;font-size:inherit}
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
+
+/* ---- Layout ---- */
+.app{position:relative;width:100%;height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+.hidden{display:none!important}
+
+/* ---- Animations ---- */
+@keyframes fadeInUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes breathe{0%,100%{box-shadow:0 0 20px rgba(102,126,234,.3)}50%{box-shadow:0 0 40px rgba(102,126,234,.6)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes checkPop{0%{transform:scale(0) rotate(-45deg)}50%{transform:scale(1.2) rotate(-45deg)}100%{transform:scale(1) rotate(-45deg)}}
+@keyframes slideUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes successPulse{0%{transform:scale(1);opacity:1}50%{transform:scale(1.05);opacity:.8}100%{transform:scale(1);opacity:1}}
+@keyframes particle{0%{transform:translateY(0) scale(1);opacity:1}100%{transform:translateY(-60px) scale(0);opacity:0}}
+
+/* ---- Pair Page ---- */
+#pair-page{
+  display:flex;align-items:center;justify-content:center;
+  height:100dvh;padding:20px;
+}
+.pair-card{
+  background:var(--glass);border:1px solid var(--glass-border);
+  border-radius:var(--radius);padding:40px 32px;
+  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  text-align:center;max-width:400px;width:100%;
+  animation:fadeInUp .6s var(--transition);
+}
+.pair-logo{
+  width:72px;height:72px;margin:0 auto 24px;
+  background:linear-gradient(135deg,var(--accent-start),var(--accent-end));
+  border-radius:20px;display:flex;align-items:center;justify-content:center;
+  font-size:32px;font-weight:700;color:#fff;
+}
+.pair-title{font-size:24px;font-weight:600;margin-bottom:8px}
+.pair-subtitle{color:var(--text-dim);font-size:14px;margin-bottom:32px}
+.code-inputs{display:flex;gap:8px;justify-content:center;margin-bottom:24px}
+.code-input{
+  width:48px;height:56px;border:2px solid var(--glass-border);
+  border-radius:var(--radius-xs);background:rgba(255,255,255,.03);
+  color:var(--text);font-size:24px;font-weight:600;text-align:center;
+  outline:none;transition:all .3s var(--transition);
+  -webkit-appearance:none;caret-color:var(--accent-start);
+}
+.code-input:focus{border-color:var(--accent-start);box-shadow:0 0 0 3px rgba(102,126,234,.2)}
+.code-input.filled{border-color:rgba(102,126,234,.5);background:rgba(102,126,234,.05)}
+.pair-btn{
+  width:100%;height:48px;border:none;border-radius:var(--radius-sm);
+  background:linear-gradient(135deg,var(--accent-start),var(--accent-end));
+  color:#fff;font-size:16px;font-weight:600;cursor:pointer;
+  transition:all .3s var(--transition);position:relative;overflow:hidden;
+}
+.pair-btn:active{transform:scale(.97)}
+.pair-btn:disabled{opacity:.5;cursor:not-allowed}
+.pair-spinner{display:inline-block;width:20px;height:20px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite}
+.pair-error{color:var(--error);font-size:14px;margin-top:12px;min-height:20px}
+.pair-device{margin-top:24px;padding-top:20px;border-top:1px solid var(--glass-border);color:var(--text-muted);font-size:12px}
+
+/* ---- Main Page ---- */
+#main-page{display:flex;flex-direction:column;height:100dvh}
+
+/* Header */
+.header{
+  display:flex;align-items:center;padding:12px 20px;gap:12px;
+  background:var(--glass);border-bottom:1px solid var(--glass-border);
+  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  flex-shrink:0;z-index:10;
+}
+.header-logo{
+  width:36px;height:36px;border-radius:10px;
+  background:linear-gradient(135deg,var(--accent-start),var(--accent-end));
+  display:flex;align-items:center;justify-content:center;
+  font-size:18px;font-weight:700;color:#fff;flex-shrink:0;
+}
+.header-title{font-size:18px;font-weight:600;flex:1}
+.header-status{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim)}
+.status-dot{width:8px;height:8px;border-radius:50%;background:var(--success);animation:pulse 2s ease-in-out infinite}
+.header-stats{font-size:12px;color:var(--text-muted);margin-right:8px}
+.header-btn{
+  width:36px;height:36px;border:none;border-radius:10px;
+  background:rgba(255,255,255,.05);border:1px solid var(--glass-border);
+  color:var(--text-dim);cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:all .2s var(--transition);font-size:18px;
+}
+.header-btn:active{transform:scale(.9);background:rgba(255,255,255,.1)}
+
+/* Tab bar */
+.tabs{
+  display:flex;padding:0 20px;gap:4px;flex-shrink:0;
+  background:var(--glass);border-bottom:1px solid var(--glass-border);
+}
+.tab{
+  padding:10px 16px;border:none;background:transparent;
+  color:var(--text-muted);font-size:14px;font-weight:500;cursor:pointer;
+  border-bottom:2px solid transparent;transition:all .3s var(--transition);
+  white-space:nowrap;
+}
+.tab.active{color:var(--text);border-bottom-color:var(--accent-start)}
+.tab:active{opacity:.7}
+.tab-badge{
+  display:inline-flex;align-items:center;justify-content:center;
+  min-width:18px;height:18px;padding:0 5px;margin-left:6px;
+  border-radius:9px;background:rgba(102,126,234,.2);color:var(--accent-start);
+  font-size:11px;font-weight:600;
+}
+
+/* Content area */
+.content{flex:1;overflow:hidden;position:relative}
+.tab-panel{position:absolute;inset:0;overflow-y:auto;padding:16px 20px;-webkit-overflow-scrolling:touch}
+.tab-panel.hidden{display:none}
+
+/* ---- Upload Zone ---- */
+.upload-zone{
+  border:2px dashed var(--glass-border);border-radius:var(--radius);
+  padding:40px 20px;text-align:center;cursor:pointer;
+  transition:all .4s var(--transition);position:relative;
+  min-height:220px;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:12px;
+  margin-bottom:16px;
+}
+.upload-zone:hover,.upload-zone.dragover{
+  border-color:var(--accent-start);background:rgba(102,126,234,.05);
+}
+.upload-zone.dragover{
+  animation:breathe 1.5s ease-in-out infinite;
+  background:rgba(102,126,234,.08);
+}
+.upload-icon{
+  width:64px;height:64px;opacity:.6;
+  transition:all .3s var(--transition);
+}
+.upload-zone:hover .upload-icon,.upload-zone.dragover .upload-icon{opacity:1;transform:translateY(-4px)}
+.upload-title{font-size:16px;font-weight:500;color:var(--text)}
+.upload-subtitle{font-size:13px;color:var(--text-muted)}
+.upload-actions{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;justify-content:center}
+.upload-btn{
+  padding:8px 16px;border:1px solid var(--glass-border);
+  border-radius:var(--radius-xs);background:var(--glass);
+  color:var(--text-dim);font-size:13px;cursor:pointer;
+  transition:all .2s var(--transition);white-space:nowrap;
+}
+.upload-btn:active{transform:scale(.95);background:rgba(255,255,255,.1)}
+.upload-btn svg{width:14px;height:14px;vertical-align:-2px;margin-right:4px}
+
+/* ---- Upload Queue ---- */
+.queue{margin-top:8px}
+.queue-title{font-size:14px;font-weight:500;color:var(--text-dim);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.queue-list{display:flex;flex-direction:column;gap:8px}
+.upload-item{
+  background:var(--glass);border:1px solid var(--glass-border);
+  border-radius:var(--radius-sm);padding:12px 14px;
+  display:flex;align-items:center;gap:12px;
+  animation:slideUp .4s var(--transition);position:relative;overflow:hidden;
+  transition:all .3s var(--transition);
+}
+.upload-item.completed{border-color:rgba(72,187,120,.2)}
+.upload-item.error{border-color:rgba(245,101,101,.2)}
+.file-icon{
+  width:40px;height:40px;border-radius:10px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  font-size:18px;
+}
+.file-icon.image{background:rgba(237,137,54,.15);color:var(--warn)}
+.file-icon.video{background:rgba(236,72,153,.15);color:#ec4899}
+.file-icon.audio{background:rgba(139,92,246,.15);color:#8b5cf6}
+.file-icon.pdf{background:rgba(245,101,101,.15);color:var(--error)}
+.file-icon.archive{background:rgba(237,137,54,.15);color:var(--warn)}
+.file-icon.text{background:rgba(66,153,225,.15);color:#4299e1}
+.file-icon.other{background:rgba(255,255,255,.05);color:var(--text-dim)}
+.upload-info{flex:1;min-width:0}
+.upload-name{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.upload-meta{font-size:12px;color:var(--text-muted);margin-top:2px}
+.upload-progress-wrap{position:absolute;bottom:0;left:0;right:0;height:3px;background:rgba(255,255,255,.03)}
+.upload-progress-bar{
+  height:100%;background:linear-gradient(90deg,var(--accent-start),var(--accent-end));
+  border-radius:0 2px 2px 0;transition:width .3s var(--transition);width:0;
+}
+.upload-actions-inline{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.upload-status-icon{
+  width:32px;height:32px;display:flex;align-items:center;justify-content:center;
+  font-size:16px;
+}
+.spinner{
+  width:20px;height:20px;border:2px solid rgba(255,255,255,.1);
+  border-top-color:var(--accent-start);border-radius:50%;
+  animation:spin .8s linear infinite;
+}
+.upload-speed{font-size:12px;color:var(--text-muted);text-align:right;min-width:60px}
+
+/* ---- File List ---- */
+.file-view-toggle{display:flex;gap:4px;margin-bottom:12px}
+.view-btn{
+  width:36px;height:32px;border:1px solid var(--glass-border);
+  border-radius:var(--radius-xs);background:var(--glass);
+  color:var(--text-muted);cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:all .2s var(--transition);font-size:16px;
+}
+.view-btn.active{background:rgba(102,126,234,.15);color:var(--accent-start);border-color:rgba(102,126,234,.3)}
+.files-grid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));
+  gap:10px;
+}
+.file-card{
+  background:var(--glass);border:1px solid var(--glass-border);
+  border-radius:var(--radius-sm);overflow:hidden;cursor:pointer;
+  transition:all .2s var(--transition);
+}
+.file-card:active{transform:scale(.97)}
+.file-thumb{
+  width:100%;aspect-ratio:1;object-fit:cover;
+  background:rgba(255,255,255,.03);display:flex;align-items:center;justify-content:center;
+  font-size:32px;color:var(--text-dim);
+}
+.file-thumb img{width:100%;height:100%;object-fit:cover}
+.file-card-info{padding:8px 10px}
+.file-card-name{font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.file-card-meta{font-size:11px;color:var(--text-muted);margin-top:2px}
+
+.files-list .file-row{
+  display:flex;align-items:center;gap:10px;padding:8px 10px;
+  background:var(--glass);border:1px solid var(--glass-border);
+  border-radius:var(--radius-xs);margin-bottom:6px;cursor:pointer;
+  transition:all .2s var(--transition);
+}
+.files-list .file-row:active{transform:scale(.99);background:rgba(255,255,255,.07)}
+.files-list .file-row-icon{
+  width:36px;height:36px;border-radius:8px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:16px;
+}
+.files-list .file-row-info{flex:1;min-width:0}
+.files-list .file-row-name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.files-list .file-row-meta{font-size:11px;color:var(--text-muted)}
+.files-list .file-row-actions{display:flex;gap:4px}
+.files-list .file-row-btn{
+  width:28px;height:28px;border:none;border-radius:6px;
+  background:rgba(255,255,255,.05);color:var(--text-dim);
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+  font-size:14px;transition:all .2s;
+}
+.files-list .file-row-btn:active{background:rgba(245,101,101,.15);color:var(--error)}
+
+.files-empty{
+  text-align:center;padding:60px 20px;color:var(--text-muted);
+}
+.files-empty-icon{font-size:48px;margin-bottom:12px;opacity:.4}
+.files-empty-text{font-size:14px}
+
+/* ---- Preview Modal ---- */
+.modal-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:1000;
+  display:flex;align-items:center;justify-content:center;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  animation:fadeInUp .2s var(--transition);
+}
+.modal-content{
+  max-width:90vw;max-height:85vh;position:relative;
+  display:flex;align-items:center;justify-content:center;
+}
+.modal-content img{max-width:90vw;max-height:85vh;border-radius:var(--radius);object-fit:contain}
+.modal-content video{max-width:90vw;max-height:85vh;border-radius:var(--radius)}
+.modal-content iframe,.modal-content pre{
+  width:85vw;height:75vh;border-radius:var(--radius);
+  background:#1a1a2e;border:none;
+}
+.modal-content pre{overflow:auto;padding:16px;font-size:13px;line-height:1.5;color:var(--text)}
+.modal-close{
+  position:fixed;top:16px;right:16px;width:40px;height:40px;
+  border:none;border-radius:50%;background:rgba(255,255,255,.15);
+  color:#fff;font-size:20px;cursor:pointer;z-index:1001;
+  display:flex;align-items:center;justify-content:center;
+}
+.modal-info{
+  position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+  background:rgba(0,0,0,.6);backdrop-filter:blur(10px);
+  padding:8px 16px;border-radius:var(--radius-xs);
+  color:var(--text-dim);font-size:13px;
+}
+
+/* ---- Settings Panel ---- */
+.settings-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100;
+  animation:fadeInUp .2s var(--transition);
+}
+.settings-panel{
+  position:fixed;top:0;right:0;width:min(380px,85vw);height:100%;
+  background:linear-gradient(180deg,var(--bg-start),var(--bg-end));
+  border-left:1px solid var(--glass-border);z-index:101;
+  padding:20px;overflow-y:auto;
+  animation:fadeInUp .3s var(--transition);
+}
+.settings-title{font-size:20px;font-weight:600;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between}
+.settings-close{
+  width:32px;height:32px;border:none;border-radius:8px;
+  background:rgba(255,255,255,.05);color:var(--text-dim);
+  cursor:pointer;font-size:18px;
+}
+.settings-group{margin-bottom:20px}
+.settings-label{font-size:13px;color:var(--text-dim);margin-bottom:6px}
+.settings-value{font-size:14px;padding:10px 12px;background:rgba(255,255,255,.03);border:1px solid var(--glass-border);border-radius:var(--radius-xs)}
+
+/* ---- Toast ---- */
+.toast{
+  position:fixed;top:20px;left:50%;transform:translateX(-50%);
+  padding:10px 20px;border-radius:var(--radius-xs);
+  font-size:14px;z-index:2000;
+  animation:fadeInUp .3s var(--transition);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  max-width:90vw;text-align:center;
+}
+.toast.success{background:rgba(72,187,120,.2);border:1px solid rgba(72,187,120,.3);color:var(--success)}
+.toast.error{background:rgba(245,101,101,.2);border:1px solid rgba(245,101,101,.3);color:var(--error)}
+.toast.info{background:rgba(102,126,234,.2);border:1px solid rgba(102,126,234,.3);color:var(--accent-start)}
+
+/* ---- Stats Bar ---- */
+.stats-bar{
+  display:flex;gap:16px;padding:10px 20px;
+  background:var(--glass);border:1px solid var(--glass-border);
+  border-radius:var(--radius-sm);margin-bottom:16px;flex-wrap:wrap;
+}
+.stat-item{display:flex;flex-direction:column;gap:2px}
+.stat-value{font-size:16px;font-weight:600;color:var(--text)}
+.stat-label{font-size:11px;color:var(--text-muted)}
+
+/* ---- Mobile Bottom Bar ---- */
+.mobile-bar{
+  display:none;position:fixed;bottom:0;left:0;right:0;
+  padding:8px 16px;padding-bottom:max(8px,env(safe-area-inset-bottom));
+  background:rgba(10,14,26,.95);backdrop-filter:blur(20px);
+  border-top:1px solid var(--glass-border);z-index:50;
+  gap:6px;
+}
+.mobile-bar .upload-btn{flex:1;text-align:center;padding:12px 8px;font-size:14px}
+
+/* ---- Responsive ---- */
+@media(max-width:600px){
+  .code-input{width:44px;height:52px;font-size:22px}
+  .pair-card{padding:28px 20px}
+  .header-stats{display:none}
+  .mobile-bar{display:flex}
+  .tab-panel{padding-bottom:80px}
+  .files-grid{grid-template-columns:repeat(auto-fill,minmax(100px,1fr))}
+  .upload-zone{min-height:160px;padding:24px 16px}
+  .upload-actions{flex-direction:column;align-items:stretch}
+  .upload-btn{padding:14px}
+}
+</style>
+</head>
+<body>
+
+<!-- ==================== 配对页面 ==================== -->
+<div id="pair-page" class="app">
+  <div class="pair-card">
+    <div class="pair-logo">A</div>
+    <h1 class="pair-title">AirTransfer</h1>
+    <p class="pair-subtitle">请输入 Mac 终端上显示的 6 位配对码</p>
+    <div class="code-inputs" id="code-inputs">
+      <input type="tel" class="code-input" maxlength="1" inputmode="numeric" pattern="[0-9]*" autocomplete="off">
+      <input type="tel" class="code-input" maxlength="1" inputmode="numeric" pattern="[0-9]*" autocomplete="off">
+      <input type="tel" class="code-input" maxlength="1" inputmode="numeric" pattern="[0-9]*" autocomplete="off">
+      <input type="tel" class="code-input" maxlength="1" inputmode="numeric" pattern="[0-9]*" autocomplete="off">
+      <input type="tel" class="code-input" maxlength="1" inputmode="numeric" pattern="[0-9]*" autocomplete="off">
+      <input type="tel" class="code-input" maxlength="1" inputmode="numeric" pattern="[0-9]*" autocomplete="off">
+    </div>
+    <button class="pair-btn" id="pair-btn" disabled>配对连接</button>
+    <div class="pair-error" id="pair-error"></div>
+    <div class="pair-device" id="pair-device"></div>
+  </div>
+</div>
+
+<!-- ==================== 主页面 ==================== -->
+<div id="main-page" class="app hidden">
+  <!-- Header -->
+  <div class="header">
+    <div class="header-logo">A</div>
+    <div class="header-title">AirTransfer</div>
+    <div class="header-stats" id="header-stats"></div>
+    <div class="header-status"><div class="status-dot"></div><span>已连接</span></div>
+    <button class="header-btn" id="settings-btn" title="设置">⚙</button>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" data-tab="upload">传输文件</button>
+    <button class="tab" data-tab="files">已接收 <span class="tab-badge" id="files-count">0</span></button>
+  </div>
+
+  <!-- Content -->
+  <div class="content">
+    <!-- Upload Tab -->
+    <div class="tab-panel" id="panel-upload">
+      <div class="stats-bar" id="stats-bar">
+        <div class="stat-item"><span class="stat-value" id="stat-files">0</span><span class="stat-label">已接收文件</span></div>
+        <div class="stat-item"><span class="stat-value" id="stat-size">0 B</span><span class="stat-label">总大小</span></div>
+        <div class="stat-item"><span class="stat-value" id="stat-connections">0</span><span class="stat-label">活跃连接</span></div>
+      </div>
+      <div class="upload-zone" id="upload-zone">
+        <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <div class="upload-title">拖放文件到这里</div>
+        <div class="upload-subtitle">或点击下方按钮选择</div>
+        <div class="upload-actions" id="upload-actions">
+          <button class="upload-btn" id="btn-files"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>选择文件</button>
+          <button class="upload-btn" id="btn-folder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>选择文件夹</button>
+          <button class="upload-btn" id="btn-camera"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>拍照上传</button>
+        </div>
+      </div>
+      <div class="queue hidden" id="queue">
+        <div class="queue-title">上传队列 <span id="queue-count">0</span></div>
+        <div class="queue-list" id="queue-list"></div>
+      </div>
+    </div>
+
+    <!-- Files Tab -->
+    <div class="tab-panel hidden" id="panel-files">
+      <div class="file-view-toggle">
+        <button class="view-btn active" data-view="grid" title="网格">▦</button>
+        <button class="view-btn" data-view="list" title="列表">☰</button>
+      </div>
+      <div id="files-container"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 移动端底部栏 ==================== -->
+<div class="mobile-bar" id="mobile-bar">
+  <button class="upload-btn" id="m-btn-files">📄 文件</button>
+  <button class="upload-btn" id="m-btn-camera">📷 拍照</button>
+  <button class="upload-btn" id="m-btn-folder">📁 文件夹</button>
+</div>
+
+<!-- ==================== 预览弹窗 ==================== -->
+<div class="modal-overlay hidden" id="preview-modal">
+  <button class="modal-close" id="modal-close">✕</button>
+  <div class="modal-content" id="preview-content"></div>
+  <div class="modal-info" id="preview-info"></div>
+</div>
+
+<!-- ==================== 设置面板 ==================== -->
+<div class="settings-overlay hidden" id="settings-overlay"></div>
+<div class="settings-panel hidden" id="settings-panel">
+  <div class="settings-title">
+    <span>设置</span>
+    <button class="settings-close" id="settings-close">✕</button>
+  </div>
+  <div class="settings-group">
+    <div class="settings-label">保存目录</div>
+    <div class="settings-value" id="setting-dir">-</div>
+  </div>
+  <div class="settings-group">
+    <div class="settings-label">服务器地址</div>
+    <div class="settings-value" id="setting-url">-</div>
+  </div>
+  <div class="settings-group">
+    <div class="settings-label">版本</div>
+    <div class="settings-value">AirTransfer v1.0.0</div>
+  </div>
+</div>
+
+<!-- ==================== 隐藏的文件输入 ==================== -->
+<input type="file" id="file-input" multiple style="display:none">
+<input type="file" id="folder-input" webkitdirectory multiple style="display:none">
+<input type="file" id="camera-input" accept="image/*,video/*" capture="environment" style="display:none">
+
+<script>
+(function(){
+"use strict";
+
+/* ===== 状态 ===== */
+const state = {
+  token: localStorage.getItem("at_token") || "",
+  files: [],
+  viewMode: localStorage.getItem("at_view") || "grid",
+  uploads: new Map(),
+  ws: null,
+  wsReady: false,
+  serverInfo: null
+};
+
+/* ===== DOM 引用 ===== */
+const $ = (s, c) => (c || document).querySelector(s);
+const $$ = (s, c) => [...(c || document).querySelectorAll(s)];
+
+const pairPage = $("#pair-page");
+const mainPage = $("#main-page");
+const codeInputs = $$(".code-input");
+const pairBtn = $("#pair-btn");
+const pairError = $("#pair-error");
+const pairDevice = $("#pair-device");
+const uploadZone = $("#upload-zone");
+const fileInput = $("#file-input");
+const folderInput = $("#folder-input");
+const cameraInput = $("#camera-input");
+const queueEl = $("#queue");
+const queueList = $("#queue-list");
+const queueCount = $("#queue-count");
+const filesContainer = $("#files-container");
+const filesCount = $("#files-count");
+const previewModal = $("#preview-modal");
+const previewContent = $("#preview-content");
+const previewInfo = $("#preview-info");
+
+/* ===== 设备信息 ===== */
+function getDeviceName() {
+  const ua = navigator.userAgent;
+  if (/iPhone/.test(ua)) return "iPhone";
+  if (/iPad/.test(ua)) return "iPad";
+  if (/Android/.test(ua)) {
+    const m = ua.match(/Android.*;\s*([^)]+)/);
+    return m ? m[1].trim() : "Android 设备";
+  }
+  if (/Macintosh/.test(ua)) return "Mac";
+  if (/Windows/.test(ua)) return "Windows PC";
+  if (/Linux/.test(ua)) return "Linux";
+  return "未知设备";
+}
+pairDevice.textContent = `设备: ${getDeviceName()}`;
+
+/* ===== 配对码输入 ===== */
+codeInputs.forEach((input, i) => {
+  input.addEventListener("input", () => {
+    const v = input.value.replace(/\D/g, "");
+    input.value = v;
+    input.classList.toggle("filled", !!v);
+    if (v && i < 5) codeInputs[i + 1].focus();
+    updatePairBtn();
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Backspace" && !input.value && i > 0) {
+      codeInputs[i - 1].focus();
+      codeInputs[i - 1].value = "";
+      codeInputs[i - 1].classList.remove("filled");
+    }
+    if (e.key === "Enter" && !pairBtn.disabled) doPair();
+  });
+  // 处理粘贴
+  input.addEventListener("paste", (e) => {
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData).getData("text").replace(/\D/g, "").slice(0, 6);
+    text.split("").forEach((ch, j) => {
+      if (codeInputs[j]) {
+        codeInputs[j].value = ch;
+        codeInputs[j].classList.add("filled");
+      }
+    });
+    if (text.length > 0) codeInputs[Math.min(text.length, 5)].focus();
+    updatePairBtn();
+  });
+});
+
+function getCode() { return codeInputs.map(i => i.value).join(""); }
+function updatePairBtn() { pairBtn.disabled = getCode().length !== 6; }
+
+pairBtn.addEventListener("click", doPair);
+
+async function doPair() {
+  const code = getCode();
+  if (code.length !== 6) return;
+  pairBtn.disabled = true;
+  pairBtn.innerHTML = '<span class="pair-spinner"></span>';
+  pairError.textContent = "";
+  try {
+    const resp = await fetch("/api/pair", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, device: getDeviceName() })
+    });
+    const data = await resp.json();
+    if (data.success) {
+      state.token = data.token;
+      localStorage.setItem("at_token", data.token);
+      showMainPage();
+    } else {
+      pairError.textContent = data.error || "配对失败";
+      shakeInputs();
+    }
+  } catch (e) {
+    pairError.textContent = "连接失败，请检查网络";
+  }
+  pairBtn.innerHTML = "配对连接";
+  pairBtn.disabled = false;
+}
+
+function shakeInputs() {
+  const box = $("#code-inputs");
+  box.style.animation = "none";
+  box.offsetHeight;
+  box.style.animation = "shake .4s ease";
+  setTimeout(() => box.style.animation = "", 400);
+}
+// shake 动画
+const style = document.createElement("style");
+style.textContent = "@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}";
+document.head.appendChild(style);
+
+/* ===== 会话检查 ===== */
+async function checkSession() {
+  if (!state.token) return;
+  try {
+    const resp = await fetch("/api/check-session", {
+      headers: { "X-Session-Token": state.token }
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.valid) { showMainPage(); return; }
+    }
+  } catch (e) { /* ignore */ }
+  state.token = "";
+  localStorage.removeItem("at_token");
+}
+
+checkSession();
+
+/* ===== 主页面初始化 ===== */
+async function showMainPage() {
+  pairPage.classList.add("hidden");
+  mainPage.classList.remove("hidden");
+  connectWebSocket();
+  loadFiles();
+  loadStats();
+  setInterval(loadStats, 30000);
+  // 入场动画
+  $$(".header,.tabs,.content", mainPage).forEach((el, i) => {
+    el.style.animation = `fadeInUp .5s ${i * 100}ms ${getComputedStyle(document.documentElement).getPropertyValue("--transition")} both`;
+  });
+}
+
+/* ===== WebSocket ===== */
+function connectWebSocket() {
+  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  const ws = new WebSocket(`${protocol}//${location.host}/ws`);
+  state.ws = ws;
+  ws.onopen = () => {
+    state.wsReady = true;
+    // 心跳
+    setInterval(() => { if (ws.readyState === 1) ws.send("ping"); }, 30000);
+  };
+  ws.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      handleWSMessage(msg);
+    } catch (err) { /* ignore */ }
+  };
+  ws.onclose = () => {
+    state.wsReady = false;
+    setTimeout(connectWebSocket, 3000);
+  };
+  ws.onerror = () => ws.close();
+}
+
+function handleWSMessage(msg) {
+  if (msg.type === "progress") {
+    updateUploadProgress(msg);
+  } else if (msg.type === "file_added") {
+    loadFiles();
+    loadStats();
+  } else if (msg.type === "file_deleted") {
+    loadFiles();
+    loadStats();
+  }
+}
+
+/* ===== 文件上传 ===== */
+const tokenHeaders = () => ({ "X-Session-Token": state.token });
+
+// 拖拽
+uploadZone.addEventListener("dragover", (e) => { e.preventDefault(); uploadZone.classList.add("dragover"); });
+uploadZone.addEventListener("dragleave", () => uploadZone.classList.remove("dragover"));
+uploadZone.addEventListener("drop", (e) => {
+  e.preventDefault();
+  uploadZone.classList.remove("dragover");
+  const items = e.dataTransfer.items;
+  if (items) {
+    const files = [];
+    const promises = [];
+    for (const item of items) {
+      if (item.kind === "file") {
+        const entry = item.webkitGetAsEntry && item.webkitGetAsEntry();
+        if (entry) {
+          promises.push(traverseEntry(entry, "").then(f => files.push(...f)));
+        } else {
+          const f = item.getAsFile();
+          if (f) files.push({ file: f, path: f.name });
+        }
+      }
+    }
+    if (promises.length) {
+      Promise.all(promises).then(() => uploadFiles(files));
+    } else {
+      uploadFiles(files);
+    }
+  } else if (e.dataTransfer.files.length) {
+    uploadFiles(Array.from(e.dataTransfer.files).map(f => ({ file: f, path: f.name })));
+  }
+});
+
+// 递归遍历文件夹
+function traverseEntry(entry, basePath) {
+  return new Promise((resolve) => {
+    if (entry.isFile) {
+      entry.file((file) => resolve([{ file, path: basePath ? basePath + "/" + file.name : file.name }]));
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const allFiles = [];
+      function readBatch() {
+        reader.readEntries(async (entries) => {
+          if (!entries.length) { resolve(allFiles); return; }
+          for (const e of entries) {
+            const subPath = basePath ? basePath + "/" + e.name : e.name;
+            const subFiles = await traverseEntry(e, subPath);
+            allFiles.push(...subFiles);
+          }
+          readBatch();
+        });
+      }
+      readBatch();
+    } else {
+      resolve([]);
+    }
+  });
+}
+
+// 按钮触发
+$("#btn-files").addEventListener("click", () => fileInput.click());
+$("#btn-folder").addEventListener("click", () => folderInput.click());
+$("#btn-camera").addEventListener("click", () => cameraInput.click());
+$("#m-btn-files").addEventListener("click", () => fileInput.click());
+$("#m-btn-folder").addEventListener("click", () => folderInput.click());
+$("#m-btn-camera").addEventListener("click", () => cameraInput.click());
+
+fileInput.addEventListener("change", () => {
+  uploadFiles(Array.from(fileInput.files).map(f => ({ file: f, path: f.name })));
+  fileInput.value = "";
+});
+
+folderInput.addEventListener("change", () => {
+  const files = Array.from(folderInput.files).map(f => {
+    const path = f.webkitRelativePath || f.name;
+    return { file: f, path };
+  });
+  uploadFiles(files);
+  folderInput.value = "";
+});
+
+cameraInput.addEventListener("change", () => {
+  uploadFiles(Array.from(cameraInput.files).map(f => ({ file: f, path: f.name })));
+  cameraInput.value = "";
+});
+
+// 点击上传区域
+uploadZone.addEventListener("click", (e) => {
+  if (e.target.closest(".upload-btn")) return;
+  fileInput.click();
+});
+
+async function uploadFiles(fileList) {
+  if (!fileList.length) return;
+  queueEl.classList.remove("hidden");
+
+  for (const { file, path } of fileList) {
+    const id = "u_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+    const item = {
+      id,
+      file,
+      path,
+      filename: file.name || path.split("/").pop(),
+      size: file.size,
+      status: "pending",
+      progress: 0,
+      speed: 0,
+      remaining: 0,
+      startTime: 0
+    };
+    state.uploads.set(id, item);
+    renderUploadItem(item);
+    startUpload(item);
+  }
+  updateQueueCount();
+}
+
+async function startUpload(item) {
+  item.status = "uploading";
+  item.startTime = Date.now();
+  updateUploadItem(item);
+
+  const form = new FormData();
+  form.append("file", item.file);
+  form.append("upload_id", item.id);
+  if (item.path && item.path !== item.filename) {
+    form.append("relative_path", item.path);
+  }
+
+  try {
+    const resp = await fetch("/api/upload", {
+      method: "POST",
+      headers: tokenHeaders(),
+      body: form
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    const data = await resp.json();
+    item.status = "completed";
+    item.savedAs = data.filename;
+    item.elapsed = data.elapsed;
+    updateUploadItem(item);
+    loadFiles();
+    loadStats();
+    showToast(`${item.filename} 上传成功`, "success");
+    // 通知
+    if ("Notification" in window && Notification.permission === "granted") {
+      new Notification("AirTransfer", { body: `${item.filename} 已接收`, icon: "/manifest.json" });
+    }
+  } catch (e) {
+    item.status = "error";
+    item.error = e.message;
+    updateUploadItem(item);
+  }
+  updateQueueCount();
+}
+
+/* ===== 上传进度渲染 ===== */
+function renderUploadItem(item) {
+  const div = document.createElement("div");
+  div.className = "upload-item";
+  div.id = "upload-" + item.id;
+  div.innerHTML = `
+    <div class="file-icon ${getFileIconClass(item.filename)}">${getFileEmoji(item.filename)}</div>
+    <div class="upload-info">
+      <div class="upload-name">${esc(item.filename)}</div>
+      <div class="upload-meta">${formatSize(item.size)}</div>
+    </div>
+    <div class="upload-speed"></div>
+    <div class="upload-actions-inline"><div class="upload-status-icon"><div class="spinner"></div></div></div>
+    <div class="upload-progress-wrap"><div class="upload-progress-bar"></div></div>
+  `;
+  queueList.prepend(div);
+}
+
+function updateUploadItem(item) {
+  const el = document.getElementById("upload-" + item.id);
+  if (!el) return;
+  const bar = $(".upload-progress-bar", el);
+  const meta = $(".upload-meta", el);
+  const speedEl = $(".upload-speed", el);
+  const statusEl = $(".upload-status-icon", el);
+
+  if (item.status === "uploading") {
+    bar.style.width = item.progress + "%";
+    meta.textContent = `${formatSize(item.size * item.progress / 100)} / ${formatSize(item.size)}`;
+    speedEl.textContent = item.speed ? `${item.speed} MB/s` : "";
+    if (item.remaining > 0) speedEl.textContent += ` · ${formatTime(item.remaining)}`;
+  } else if (item.status === "completed") {
+    el.classList.add("completed");
+    bar.style.width = "100%";
+    bar.style.background = "var(--success)";
+    meta.textContent = `${formatSize(item.size)} · ${item.elapsed}s`;
+    speedEl.textContent = "";
+    statusEl.innerHTML = '<span style="color:var(--success);font-size:20px">✓</span>';
+  } else if (item.status === "error") {
+    el.classList.add("error");
+    meta.textContent = "上传失败";
+    speedEl.textContent = "";
+    statusEl.innerHTML = `<button onclick="retryUpload('${item.id}')" style="background:none;border:none;color:var(--error);cursor:pointer;font-size:13px">重试</button>`;
+  }
+}
+
+function updateUploadProgress(msg) {
+  const item = state.uploads.get(msg.upload_id);
+  if (!item) return;
+  item.progress = msg.progress || 0;
+  item.speed = msg.speed || 0;
+  item.remaining = msg.remaining || 0;
+  if (msg.status === "completed") {
+    item.status = "completed";
+    item.elapsed = msg.elapsed;
+    item.savedAs = msg.saved_as;
+  } else if (msg.status === "error") {
+    item.status = "error";
+    item.error = msg.error;
+  }
+  updateUploadItem(item);
+  updateQueueCount();
+}
+
+window.retryUpload = function(id) {
+  const item = state.uploads.get(id);
+  if (item) {
+    item.status = "pending";
+    item.progress = 0;
+    const el = document.getElementById("upload-" + id);
+    if (el) { el.classList.remove("error", "completed"); }
+    startUpload(item);
+  }
+};
+
+function updateQueueCount() {
+  let active = 0;
+  state.uploads.forEach(u => { if (u.status === "uploading" || u.status === "pending") active++; });
+  queueCount.textContent = active;
+  if (state.uploads.size === 0) queueEl.classList.add("hidden");
+}
+
+/* ===== 文件列表 ===== */
+async function loadFiles() {
+  try {
+    const resp = await fetch("/api/files", { headers: tokenHeaders() });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    state.files = data.files || [];
+    filesCount.textContent = state.files.length;
+    renderFiles();
+  } catch (e) { /* ignore */ }
+}
+
+function renderFiles() {
+  if (!state.files.length) {
+    filesContainer.innerHTML = `<div class="files-empty"><div class="files-empty-icon">📭</div><div class="files-empty-text">还没有接收到文件</div></div>`;
+    return;
+  }
+  if (state.viewMode === "grid") renderGrid();
+  else renderList();
+}
+
+function renderGrid() {
+  let html = '<div class="files-grid">';
+  for (const f of state.files) {
+    const isImage = f.type === "image";
+    const thumb = isImage
+      ? `<img src="/api/thumbnail/${encodeURIComponent(f.path)}?token=${state.token}" loading="lazy" alt="${esc(f.name)}">`
+      : getFileEmoji(f.name);
+    html += `
+      <div class="file-card" onclick="previewFile('${esc(f.path)}','${f.type}','${esc(f.name)}')">
+        <div class="file-thumb">${thumb}</div>
+        <div class="file-card-info">
+          <div class="file-card-name">${esc(f.name)}</div>
+          <div class="file-card-meta">${f.size_formatted}</div>
+        </div>
+      </div>`;
+  }
+  html += "</div>";
+  filesContainer.innerHTML = html;
+}
+
+function renderList() {
+  let html = '<div class="files-list">';
+  for (const f of state.files) {
+    html += `
+      <div class="file-row">
+        <div class="file-row-icon ${getFileIconClass(f.name)}">${getFileEmoji(f.name)}</div>
+        <div class="file-row-info">
+          <div class="file-row-name">${esc(f.name)}</div>
+          <div class="file-row-meta">${f.size_formatted} · ${formatDate(f.modified)}</div>
+        </div>
+        <div class="file-row-actions">
+          <button class="file-row-btn" onclick="event.stopPropagation();previewFile('${esc(f.path)}','${f.type}','${esc(f.name)}')" title="预览">👁</button>
+          <button class="file-row-btn" onclick="event.stopPropagation();deleteFile('${esc(f.path)}','${esc(f.name)}')" title="删除">🗑</button>
+        </div>
+      </div>`;
+  }
+  html += "</div>";
+  filesContainer.innerHTML = html;
+}
+
+// 视图切换
+$$(".view-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    $$(".view-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    state.viewMode = btn.dataset.view;
+    localStorage.setItem("at_view", state.viewMode);
+    renderFiles();
+  });
+});
+
+/* ===== 文件操作 ===== */
+window.previewFile = function(path, type, name) {
+  if (type === "image") {
+    previewContent.innerHTML = `<img src="/api/preview/${encodeURIComponent(path)}?token=${state.token}" alt="${esc(name)}">`;
+  } else if (type === "video") {
+    previewContent.innerHTML = `<video src="/api/preview/${encodeURIComponent(path)}?token=${state.token}" controls autoplay></video>`;
+  } else if (type === "pdf") {
+    previewContent.innerHTML = `<iframe src="/api/preview/${encodeURIComponent(path)}?token=${state.token}"></iframe>`;
+  } else if (type === "text" || type === "other") {
+    fetch(`/api/preview/${encodeURIComponent(path)}`, { headers: tokenHeaders() })
+      .then(r => r.text())
+      .then(t => { previewContent.innerHTML = `<pre>${esc(t)}</pre>`; });
+  } else {
+    previewContent.innerHTML = `<div style="padding:40px;text-align:center;color:var(--text-dim)">不支持预览此文件类型<br><br><a href="/api/preview/${encodeURIComponent(path)}?token=${state.token}" download="${esc(name)}" style="color:var(--accent-start)">下载文件</a></div>`;
+  }
+  previewInfo.textContent = name;
+  previewModal.classList.remove("hidden");
+};
+
+window.deleteFile = async function(path, name) {
+  if (!confirm(`确定删除 "${name}"？`)) return;
+  try {
+    const resp = await fetch(`/api/files/${encodeURIComponent(path)}`, {
+      method: "DELETE",
+      headers: tokenHeaders()
+    });
+    if (resp.ok) {
+      showToast(`已删除 ${name}`, "info");
+      loadFiles();
+      loadStats();
+    }
+  } catch (e) {
+    showToast("删除失败", "error");
+  }
+};
+
+// 关闭预览
+$("#modal-close").addEventListener("click", () => {
+  previewModal.classList.add("hidden");
+  previewContent.innerHTML = "";
+  // 暂停视频
+  const video = $("video", previewContent);
+  if (video) video.pause();
+});
+previewModal.addEventListener("click", (e) => {
+  if (e.target === previewModal) {
+    previewModal.classList.add("hidden");
+    previewContent.innerHTML = "";
+  }
+});
+
+/* ===== Tab 切换 ===== */
+$$(".tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    $$(".tab").forEach(t => t.classList.remove("active"));
+    tab.classList.add("active");
+    $$(".tab-panel").forEach(p => p.classList.add("hidden"));
+    $(`#panel-${tab.dataset.tab}`).classList.remove("hidden");
+    if (tab.dataset.tab === "files") loadFiles();
+  });
+});
+
+/* ===== 设置 ===== */
+$("#settings-btn").addEventListener("click", () => {
+  $("#settings-overlay").classList.remove("hidden");
+  $("#settings-panel").classList.remove("hidden");
+  loadSettings();
+});
+function closeSettings() {
+  $("#settings-overlay").classList.add("hidden");
+  $("#settings-panel").classList.add("hidden");
+}
+$("#settings-close").addEventListener("click", closeSettings);
+$("#settings-overlay").addEventListener("click", closeSettings);
+
+async function loadSettings() {
+  try {
+    const resp = await fetch("/api/info");
+    const data = await resp.json();
+    const protocol = location.protocol;
+    $("#setting-dir").textContent = data.save_dir || "-";
+    $("#setting-url").textContent = `${protocol}//${location.host}`;
+  } catch (e) { /* ignore */ }
+}
+
+/* ===== 统计 ===== */
+async function loadStats() {
+  try {
+    const resp = await fetch("/api/stats", { headers: tokenHeaders() });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    $("#stat-files").textContent = data.total_files;
+    $("#stat-size").textContent = data.total_size_formatted;
+    $("#stat-connections").textContent = data.active_connections;
+    $("#header-stats").textContent = `${data.total_files} 个文件 · ${data.total_size_formatted}`;
+  } catch (e) { /* ignore */ }
+}
+
+/* ===== Toast ===== */
+function showToast(msg, type = "info") {
+  const toast = document.createElement("div");
+  toast.className = `toast ${type}`;
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  setTimeout(() => { toast.style.opacity = "0"; toast.style.transition = "opacity .3s"; }, 2500);
+  setTimeout(() => toast.remove(), 2800);
+}
+
+/* ===== 通知权限 ===== */
+if ("Notification" in window && Notification.permission === "default") {
+  Notification.requestPermission();
+}
+
+/* ===== 工具函数 ===== */
+function esc(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
+function formatSize(b) {
+  if (!b) return "0 B";
+  const u = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
+  return (i === 0 ? b : b.toFixed(1)) + " " + u[i];
+}
+function formatTime(s) {
+  if (s < 60) return Math.round(s) + "s";
+  if (s < 3600) return Math.floor(s / 60) + "m" + Math.round(s % 60) + "s";
+  return Math.floor(s / 3600) + "h" + Math.floor(s % 3600 / 60) + "m";
+}
+function formatDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const now = new Date();
+  const diff = now - d;
+  if (diff < 60000) return "刚刚";
+  if (diff < 3600000) return Math.floor(diff / 60000) + " 分钟前";
+  if (diff < 86400000) return Math.floor(diff / 3600000) + " 小时前";
+  return d.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+function getFileEmoji(name) {
+  const ext = (name || "").split(".").pop().toLowerCase();
+  const map = {
+    jpg:"🖼",jpeg:"🖼",png:"🖼",gif:"🖼",webp:"🖼",svg:"🖼",bmp:"🖼",ico:"🖼",
+    mp4:"🎬",webm:"🎬",mov:"🎬",avi:"🎬",mkv:"🎬",
+    mp3:"🎵",wav:"🎵",flac:"🎵",aac:"🎵",ogg:"🎵",
+    pdf:"📕",doc:"📄",docx:"📄",xls:"📊",xlsx:"📊",ppt:"📑",pptx:"📑",
+    zip:"📦",rar:"📦","7z":"📦",tar:"📦",gz:"📦",
+    txt:"📝",md:"📝",csv:"📝",json:"📝",xml:"📝",html:"📝",css:"📝",js:"📝",
+    py:"🐍",java:"☕",go:"🔵",rs:"🦀",ts:"🔷",
+    apk:"📱",ipa:"📱",exe:"💻",dmg:"💿"
+  };
+  return map[ext] || "📎";
+}
+function getFileIconClass(name) {
+  const ext = (name || "").split(".").pop().toLowerCase();
+  const types = {
+    image:["jpg","jpeg","png","gif","webp","svg","bmp","ico"],
+    video:["mp4","webm","mov","avi","mkv","flv"],
+    audio:["mp3","wav","flac","aac","ogg","wma","m4a"],
+    pdf:["pdf"],
+    archive:["zip","rar","7z","tar","gz","bz2"],
+    text:["txt","md","csv","json","xml","html","css","js","py","java","c","cpp","go","rs","ts"]
+  };
+  for (const [type, exts] of Object.entries(types)) {
+    if (exts.includes(ext)) return type;
+  }
+  return "other";
+}
+
+})();
+</script>
+</body>
+</html>
