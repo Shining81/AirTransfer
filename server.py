@@ -450,16 +450,63 @@ import ipaddress
 async def lifespan(app):
     """应用生命周期"""
     global TUNNEL_URL
+
     # 启动内网穿透
     if config.get("tunnel"):
         TUNNEL_URL = start_tunnel(config["port"])
+
     print_startup_info()
     logger.info(f"AirTransfer 启动 - 端口:{config['port']} 目录:{SAVE_DIR}")
     if TUNNEL_URL:
         logger.info(f"公网隧道: {TUNNEL_URL}")
+
+    # 启动隧道保活检测
+    health_task = None
+    if config.get("tunnel"):
+        health_task = asyncio.create_task(_tunnel_health_loop())
+
     yield
-    # 关闭隧道
+
+    # 关闭
+    if health_task:
+        health_task.cancel()
+        try:
+            await health_task
+        except asyncio.CancelledError:
+            pass
     stop_tunnel()
+
+
+async def _tunnel_health_loop():
+    """后台轮询：每 15 秒检测隧道进程，挂了自动重启"""
+    global TUNNEL_URL
+    while True:
+        await asyncio.sleep(15)
+        try:
+            dead = False
+            if _tunnel_process is None:
+                dead = True
+            elif _tunnel_process.poll() is not None:
+                dead = True
+                logger.warning(f"cloudflared 进程已退出 (code={_tunnel_process.returncode})")
+
+            if dead:
+                logger.warning("隧道断开，正在重新连接...")
+                print("  ⚠️ 隧道断开，正在重连...")
+                stop_tunnel()
+                TUNNEL_URL = start_tunnel(config["port"])
+                if TUNNEL_URL:
+                    logger.info(f"隧道已重连: {TUNNEL_URL}")
+                    print(f"  ✓ 隧道已重连: {TUNNEL_URL}")
+                    # 广播新 URL 给前端
+                    await broadcast_file_event("tunnel_reconnected", {"url": TUNNEL_URL})
+                else:
+                    logger.error("隧道重连失败，30 秒后重试")
+                    print("  ❌ 隧道重连失败，30 秒后重试")
+                    await asyncio.sleep(15)  # 失败后多等一会
+        except Exception as e:
+            logger.error(f"隧道健康检测异常: {e}")
+            await asyncio.sleep(15)
 
 app = FastAPI(title="AirTransfer", docs_url=None, redoc_url=None, lifespan=lifespan)
 

@@ -684,6 +684,8 @@ function handleWSMessage(msg) {
   } else if (msg.type === "file_deleted") {
     loadFiles();
     loadStats();
+  } else if (msg.type === "tunnel_reconnected") {
+    showToast("隧道已重连，URL 已更新", "success");
   }
 }
 
