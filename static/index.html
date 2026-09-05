@@ -642,52 +642,49 @@ checkSession();
 async function showMainPage() {
   pairPage.classList.add("hidden");
   mainPage.classList.remove("hidden");
-  // 检测网络类型（局域网直连 vs 公网隧道）
-  await detectNetwork();
+  detectNetwork();
   connectWebSocket();
   loadFiles();
   loadStats();
   setInterval(loadStats, 30000);
-  // 入场动画
   $$(".header,.tabs,.content", mainPage).forEach((el, i) => {
     el.style.animation = `fadeInUp .5s ${i * 100}ms ${getComputedStyle(document.documentElement).getPropertyValue("--transition")} both`;
   });
 }
 
-/* ===== 网络检测：局域网 vs 公网 ===== */
-async function detectNetwork() {
-  // 获取服务器信息
-  try {
-    const resp = await fetch("/api/info");
-    state.serverInfo = await resp.json();
-  } catch (e) { return; }
+/* ===== 网络检测 ===== */
+// 页面加载时立即探测，如果通过隧道访问且同一 WiFi 下有局域网，直接跳转
+(function earlyDetect() {
+  const isTunnel = location.hostname.includes("trycloudflare.com") || location.hostname.includes("ngrok") || location.hostname.includes("serveo.net");
+  if (!isTunnel) { state.connectionMode = "lan"; return; }
 
-  const info = state.serverInfo;
-  const isTunnel = location.hostname.includes("trycloudflare.com") || location.hostname.includes("ngrok");
+  // 从隧道的 /api/info 获取局域网 IP 列表
+  fetch("/api/info").then(r => r.json()).then(info => {
+    if (!info.lan_urls || !info.lan_urls.length) return;
+    const port = info.port;
+    // 用 Image 探测每个局域网 IP（不受混合内容限制）
+    let found = false;
+    const tryNext = (i) => {
+      if (i >= info.lan_urls.length || found) return;
+      const url = info.lan_urls[i];
+      const img = new Image();
+      const timer = setTimeout(() => { img.src = ""; tryNext(i + 1); }, 1500);
+      img.onload = img.onerror = () => {
+        clearTimeout(timer);
+        if (found) return;
+        found = true;
+        // 局域网可达，整页跳转（后续所有请求都走局域网，速度快）
+        const lanUrl = url + location.pathname + location.search;
+        location.replace(lanUrl);
+      };
+      img.src = url + "/api/info?t=" + Date.now();
+    };
+    tryNext(0);
+  }).catch(() => {});
+})();
 
-  if (!isTunnel) {
-    // 直接通过局域网 IP 访问 → 高速模式
-    state.connectionMode = "lan";
-    state.uploadBase = location.origin;
-  } else {
-    // 通过隧道访问 → 尝试探测局域网直连
-    state.connectionMode = "tunnel";
-    state.uploadBase = location.origin;
-
-    // 尝试直连局域网 IP（用户可能同时在同一个 WiFi 下）
-    if (info.lan_urls && info.lan_urls.length) {
-      for (const url of info.lan_urls) {
-        try {
-          const test = await fetch(url + "/api/info", { signal: AbortSignal.timeout(2000) });
-          if (test.ok) {
-            state.connectionMode = "lan-direct";
-            state.uploadBase = url;
-            break;
-          }
-        } catch (e) { continue; }
-      }
-    }
-  }
+function detectNetwork() {
+  state.connectionMode = location.hostname.includes("trycloudflare.com") || location.hostname.includes("ngrok") ? "tunnel" : "lan";
   updateConnectionIndicator();
 }
 
@@ -699,9 +696,6 @@ function updateConnectionIndicator() {
   if (state.connectionMode === "lan") {
     dot.style.background = "#48bb78";
     label.textContent = "局域网 · 极速";
-  } else if (state.connectionMode === "lan-direct") {
-    dot.style.background = "#48bb78";
-    label.textContent = "局域网直连 · 极速";
   } else {
     dot.style.background = "#ed8936";
     label.textContent = "公网隧道";
@@ -713,11 +707,9 @@ let wsHeartbeat = null;
 let wsReconnectDelay = 1000;
 
 function connectWebSocket() {
-  if (state.ws && state.ws.readyState < 2) return; // 已连接或正在连接
-  const base = state.uploadBase || location.origin;
-  const wsProtocol = base.startsWith("https") ? "wss:" : "ws:";
-  const wsHost = base.replace(/^https?:\/\//, "");
-  const ws = new WebSocket(`${wsProtocol}//${wsHost}/ws`);
+  if (state.ws && state.ws.readyState < 2) return;
+  const wsProtocol = location.protocol === "https:" ? "wss:" : "ws:";
+  const ws = new WebSocket(`${wsProtocol}//${location.host}/ws`);
   state.ws = ws;
   ws.onopen = () => {
     state.wsReady = true;
@@ -939,7 +931,7 @@ async function directUpload(item) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), Math.max(300000, (item.size / 1048576) * 60000));
 
-  const resp = await fetch((state.uploadBase || "") + "/api/upload", {
+  const resp = await fetch("/api/upload", {
     method: "POST", headers: tokenHeaders(), body: form, signal: controller.signal
   });
   clearTimeout(timeout);
@@ -951,10 +943,11 @@ async function directUpload(item) {
 
 /* 分片并行上传模式（公网隧道大文件） */
 async function chunkedUpload(item) {
-  const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB 每片
-  const MAX_PARALLEL = 3;              // 最多 3 路并发
+  // 根据文件大小自适应分片
+  const sizeMB = item.size / 1048576;
+  const CHUNK_SIZE = sizeMB > 100 ? 8 * 1048576 : sizeMB > 20 ? 4 * 1048576 : 2 * 1048576;
+  const MAX_PARALLEL = sizeMB > 50 ? 6 : sizeMB > 10 ? 4 : 3;
   const totalChunks = Math.ceil(item.size / CHUNK_SIZE);
-  const base = state.uploadBase || "";
 
   // 逐片上传，带并发控制
   let uploaded = 0;
@@ -975,7 +968,7 @@ async function chunkedUpload(item) {
       form.append("filename", item.filename);
       if (item.path && item.path !== item.filename) form.append("relative_path", item.path);
 
-      fetch(base + "/api/upload-chunk", {
+      fetch("/api/upload-chunk", {
         method: "POST", headers: tokenHeaders(), body: form
       }).then(r => {
         semaphore.active--;
@@ -1000,7 +993,7 @@ async function chunkedUpload(item) {
   form.append("total_chunks", totalChunks);
   if (item.path && item.path !== item.filename) form.append("relative_path", item.path);
 
-  const resp = await fetch(base + "/api/upload-finalize", {
+  const resp = await fetch("/api/upload-finalize", {
     method: "POST", headers: tokenHeaders(), body: form
   });
   if (!resp.ok) throw new Error(await resp.text());
